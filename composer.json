@@ -1,0 +1,11 @@
+{
+	"name": "webchemistry/form-serializer",
+	"autoload": {
+		"psr-4": {
+			"WebChemistry\\FormSerializer\\": "src"
+		}
+	},
+	"require": {
+		"php": ">= 8.0"
+	}
+}
