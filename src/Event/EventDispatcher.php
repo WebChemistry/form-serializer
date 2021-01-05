@@ -22,6 +22,13 @@ final class EventDispatcher
 		return $this;
 	}
 
+	public function addAfterValidation(callable $callback): self
+	{
+		$this->listeners[AfterValidationEvent::class][] = $callback;
+
+		return $this;
+	}
+
 	public function addSuccess(callable $callback): self
 	{
 		$this->listeners[SuccessEvent::class][] = $callback;

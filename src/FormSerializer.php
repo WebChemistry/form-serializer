@@ -11,10 +11,17 @@ use Nette\Forms\Controls\Button;
 use Symfony\Component\Serializer\Normalizer\AbstractObjectNormalizer;
 use Symfony\Component\Serializer\Serializer;
 use WebChemistry\FormSerializer\Event\AfterDenormalizeEvent;
+use WebChemistry\FormSerializer\Event\AfterValidationEvent;
 use WebChemistry\FormSerializer\Event\BeforeDenormalizeEvent;
 use WebChemistry\FormSerializer\Event\EventDispatcher;
 use WebChemistry\FormSerializer\Event\SuccessEvent;
+use WebChemistry\Validator\Validator;
 
+/**
+ * beforeDenormalize -> (array -> object) -> afterDenormalize ->
+ * (validator(object)) -> afterValidation ->
+ * (persist(object)) -> success
+ */
 final class FormSerializer
 {
 
@@ -23,6 +30,8 @@ final class FormSerializer
 	private bool $allowExtraAttributes = false;
 
 	private bool $persistObject = true;
+
+	private bool $validateObject = true;
 
 	/** @var mixed[] */
 	private array $normalizerContext = [];
@@ -38,7 +47,8 @@ final class FormSerializer
 		private Form $form,
 		private string $class,
 		private Serializer $serializer,
-		private EntityManagerInterface $em
+		private EntityManagerInterface $em,
+		private ?Validator $validator = null,
 	)
 	{
 		$this->eventDispatcher = new EventDispatcher();
@@ -51,6 +61,11 @@ final class FormSerializer
 		$this->persistObject = $persistObject;
 
 		return $this;
+	}
+
+	public function setValidateObject(bool $validateObject): void
+	{
+		$this->validateObject = $validateObject;
 	}
 
 	public function setAttributesByFormControls(bool $attributesByFormControls = true): self
@@ -142,6 +157,21 @@ final class FormSerializer
 
 			// after denormalize
 			$this->eventDispatcher->dispatch(new AfterDenormalizeEvent($object, $form));
+
+			// validate
+			if ($this->validateObject && $this->validator) {
+				$errors = $this->validator->validate($object);
+
+				if ($errors) {
+					foreach ($errors->getViolations() as $error) {
+						$form->addError($error->getError());
+					}
+
+					return;
+				}
+			}
+
+			$this->eventDispatcher->dispatch(new AfterValidationEvent($object, $form));
 
 			// persist
 			if ($this->persistObject) {
