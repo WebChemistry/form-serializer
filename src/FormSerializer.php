@@ -43,6 +43,9 @@ final class FormSerializer
 
 	private EventDispatcher $eventDispatcher;
 
+	/** @var string[] */
+	private array $groups = [];
+
 	public function __construct(
 		private Form $form,
 		private string $class,
@@ -54,6 +57,14 @@ final class FormSerializer
 		$this->eventDispatcher = new EventDispatcher();
 
 		$this->prepare();
+	}
+
+	/**
+	 * @param string[] $groups
+	 */
+	public function setGroups(array $groups): void
+	{
+		$this->groups = $groups;
 	}
 
 	public function setPersistObject(bool $persistObject): self
@@ -160,7 +171,7 @@ final class FormSerializer
 
 			// validate
 			if ($this->validateObject && $this->validator) {
-				$errors = $this->validator->validate($object);
+				$errors = $this->validator->validate($object, null, $this->groups ?: null);
 
 				if ($errors) {
 					foreach ($errors->getViolations() as $error) {
