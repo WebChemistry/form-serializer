@@ -3,8 +3,9 @@
 namespace WebChemistry\FormSerializer\Event;
 
 use Nette\Application\UI\Form;
+use WebChemistry\FormSerializer\FormSerializer;
 
-final class BeforeDenormalizeEvent extends Event
+final class BeforeDenormalizationEvent extends Event
 {
 
 	/**
@@ -13,8 +14,14 @@ final class BeforeDenormalizeEvent extends Event
 	public function __construct(
 		private array $values,
 		private Form $form,
+		private FormSerializer $serializer,
 	)
 	{
+	}
+
+	public function getSerializer(): FormSerializer
+	{
+		return $this->serializer;
 	}
 
 	public function getForm(): Form
@@ -41,6 +48,11 @@ final class BeforeDenormalizeEvent extends Event
 	public function setValue(string|int $index, mixed $value): void
 	{
 		$this->values[$index] = $value;
+	}
+
+	public function remove(string|int $index): void
+	{
+		unset($this->values[$index]);
 	}
 
 }

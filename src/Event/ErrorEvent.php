@@ -2,15 +2,13 @@
 
 namespace WebChemistry\FormSerializer\Event;
 
-use LogicException;
 use Nette\Application\UI\Form;
 use WebChemistry\FormSerializer\FormSerializer;
 
-class AfterValidationEvent extends Event
+final class ErrorEvent extends Event
 {
 
 	public function __construct(
-		private object $object,
 		private Form $form,
 		private FormSerializer $serializer,
 	)
@@ -25,17 +23,6 @@ class AfterValidationEvent extends Event
 	public function getForm(): Form
 	{
 		return $this->form;
-	}
-
-	public function getObject(?string $typeOf = null): object
-	{
-		if ($typeOf && !$this->object instanceof $typeOf) {
-			throw new LogicException(
-				sprintf('Object must be instance of %s, %s given', $typeOf, get_debug_type($this->object))
-			);
-		}
-
-		return $this->object;
 	}
 
 }

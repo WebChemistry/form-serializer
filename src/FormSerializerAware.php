@@ -2,7 +2,7 @@
 
 namespace WebChemistry\FormSerializer;
 
-trait TFormSerializer
+trait FormSerializerAware
 {
 
 	private FormSerializer $serializer;

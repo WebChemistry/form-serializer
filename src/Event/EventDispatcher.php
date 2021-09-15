@@ -2,22 +2,31 @@
 
 namespace WebChemistry\FormSerializer\Event;
 
+use Error;
+
 final class EventDispatcher
 {
 
 	/** @var mixed[] */
 	private array $listeners = [];
 
-	public function addBeforeDenormalize(callable $callback): self
+	public function addAfterNormalization(callable $callback): self
 	{
-		$this->listeners[BeforeDenormalizeEvent::class][] = $callback;
+		$this->listeners[AfterNormalizationEvent::class][] = $callback;
 
 		return $this;
 	}
 
-	public function addAfterDenormalize(callable $callback): self
+	public function addBeforeDenormalization(callable $callback): self
 	{
-		$this->listeners[AfterDenormalizeEvent::class][] = $callback;
+		$this->listeners[BeforeDenormalizationEvent::class][] = $callback;
+
+		return $this;
+	}
+
+	public function addAfterDenormalization(callable $callback): self
+	{
+		$this->listeners[AfterDenormalizationEvent::class][] = $callback;
 
 		return $this;
 	}
@@ -29,9 +38,23 @@ final class EventDispatcher
 		return $this;
 	}
 
+	public function addError(callable $callback): self
+	{
+		$this->listeners[Error::class][] = $callback;
+
+		return $this;
+	}
+
 	public function addSuccess(callable $callback): self
 	{
 		$this->listeners[SuccessEvent::class][] = $callback;
+
+		return $this;
+	}
+
+	public function addFinalize(callable $callback): self
+	{
+		$this->listeners[FinalizeEvent::class][] = $callback;
 
 		return $this;
 	}

@@ -4,15 +4,22 @@ namespace WebChemistry\FormSerializer\Event;
 
 use LogicException;
 use Nette\Application\UI\Form;
+use WebChemistry\FormSerializer\FormSerializer;
 
-class AfterDenormalizeEvent extends Event
+final class FinalizeEvent extends Event
 {
 
 	public function __construct(
 		private object $object,
 		private Form $form,
+		private FormSerializer $serializer,
 	)
 	{
+	}
+
+	public function getSerializer(): FormSerializer
+	{
+		return $this->serializer;
 	}
 
 	public function getForm(): Form
@@ -20,6 +27,11 @@ class AfterDenormalizeEvent extends Event
 		return $this->form;
 	}
 
+	/**
+	 * @template T
+	 * @param class-string<T>|null $typeOf
+	 * @return T|object
+	 */
 	public function getObject(?string $typeOf = null): object
 	{
 		if ($typeOf && !$this->object instanceof $typeOf) {

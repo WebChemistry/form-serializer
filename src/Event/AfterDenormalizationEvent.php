@@ -6,7 +6,7 @@ use LogicException;
 use Nette\Application\UI\Form;
 use WebChemistry\FormSerializer\FormSerializer;
 
-class AfterValidationEvent extends Event
+class AfterDenormalizationEvent extends Event
 {
 
 	public function __construct(
@@ -27,6 +27,11 @@ class AfterValidationEvent extends Event
 		return $this->form;
 	}
 
+	/**
+	 * @template T
+	 * @param class-string<T>|null $typeOf
+	 * @return T|object
+	 */
 	public function getObject(?string $typeOf = null): object
 	{
 		if ($typeOf && !$this->object instanceof $typeOf) {

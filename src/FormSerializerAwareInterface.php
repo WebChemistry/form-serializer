@@ -7,4 +7,6 @@ interface FormSerializerAwareInterface
 
 	public function setSerializer(FormSerializer $serializer);
 
+	public function getSerializer(): FormSerializer;
+
 }

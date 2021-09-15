@@ -10,53 +10,65 @@ use Nette\Forms\Controls\BaseControl;
 use Nette\Forms\Controls\Button;
 use Symfony\Component\Serializer\Normalizer\AbstractObjectNormalizer;
 use Symfony\Component\Serializer\Serializer;
-use WebChemistry\FormSerializer\Event\AfterDenormalizeEvent;
+use Symfony\Component\Validator\ConstraintViolation;
+use Symfony\Component\Validator\Validator\ValidatorInterface;
+use Tracy\Debugger;
+use WebChemistry\FormSerializer\Context\DenormalizationContextFactory;
+use WebChemistry\FormSerializer\Context\NormalizationContextFactory;
+use WebChemistry\FormSerializer\Context\NormalizationContextFactoryInterface;
+use WebChemistry\FormSerializer\Event\AfterDenormalizationEvent;
+use WebChemistry\FormSerializer\Event\AfterNormalizationEvent;
 use WebChemistry\FormSerializer\Event\AfterValidationEvent;
-use WebChemistry\FormSerializer\Event\BeforeDenormalizeEvent;
+use WebChemistry\FormSerializer\Event\BeforeDenormalizationEvent;
+use WebChemistry\FormSerializer\Event\ErrorEvent;
 use WebChemistry\FormSerializer\Event\EventDispatcher;
+use WebChemistry\FormSerializer\Event\FinalizeEvent;
 use WebChemistry\FormSerializer\Event\SuccessEvent;
-use WebChemistry\Validator\Validator;
 
 /**
- * beforeDenormalize -> (array -> object) -> afterDenormalize ->
- * (validator(object)) -> afterValidation ->
- * (persist(object)) -> success
+ * beforeDenormalization -> (array -> object) -> afterDenormalization ->
+ * (validate(object)) -> afterValidation ->
+ * (persist(object)) -> success -> finalize
  */
 final class FormSerializer
 {
 
 	private ?object $defaultObject = null;
 
-	private bool $allowExtraAttributes = false;
-
 	private bool $persistObject = true;
 
 	private bool $validateObject = true;
 
-	/** @var mixed[] */
-	private array $normalizerContext = [];
+	private NormalizationContextFactoryInterface $normalizationContextFactory;
 
-	/** @var mixed[] */
-	private array $denormalizerContext = [];
-
-	private bool $attributesByFormControls = false;
+	private DenormalizationContextFactory $denormalizationContextFactory;
 
 	private EventDispatcher $eventDispatcher;
 
 	/** @var string[] */
 	private array $groups = [];
 
+	/** @var mixed[] */
+	private array $extraValues = [];
+
 	public function __construct(
 		private Form $form,
-		private string $class,
+		private string $className,
 		private Serializer $serializer,
-		private EntityManagerInterface $em,
-		private ?Validator $validator = null,
+		private ?EntityManagerInterface $em = null,
+		private ?ValidatorInterface $validator = null,
 	)
 	{
 		$this->eventDispatcher = new EventDispatcher();
+		$this->normalizationContextFactory = new NormalizationContextFactory($this);
+		$this->denormalizationContextFactory = new DenormalizationContextFactory($this);
 
 		$this->prepare();
+	}
+
+	public function setClassName(string $className): void
+	{
+		$this->className = $className;
 	}
 
 	/**
@@ -79,39 +91,14 @@ final class FormSerializer
 		$this->validateObject = $validateObject;
 	}
 
-	public function setAttributesByFormControls(bool $attributesByFormControls = true): self
+	public function getNormalizationContextFactory(): NormalizationContextFactoryInterface
 	{
-		$this->attributesByFormControls = $attributesByFormControls;
-
-		return $this;
+		return $this->normalizationContextFactory;
 	}
 
-	public function setNormalizerContext(array $normalizerContext): self
+	public function getDenormalizationContextFactory(): DenormalizationContextFactory
 	{
-		$this->normalizerContext = $normalizerContext;
-
-		return $this;
-	}
-
-	public function addToNormalizerContext(string $key, mixed $value): self
-	{
-		$this->normalizerContext[$key] = isset($this->normalizerContext[$key]) && is_array($this->normalizerContext[$key]) && is_array($value) ? array_merge($this->normalizerContext[$key], $value) : $value;
-
-		return $this;
-	}
-
-	public function setDenormalizerContext(array $denormalizerContext): self
-	{
-		$this->denormalizerContext = $denormalizerContext;
-
-		return $this;
-	}
-
-	public function addToDenormalizerContext(string $key, mixed $value): self
-	{
-		$this->denormalizerContext[$key] = isset($this->denormalizerContext[$key]) && is_array($this->denormalizerContext[$key]) && is_array($value) ? array_merge($this->denormalizerContext[$key], $value) : $value;
-
-		return $this;
+		return $this->denormalizationContextFactory;
 	}
 
 	public function getForm(): Form
@@ -119,9 +106,14 @@ final class FormSerializer
 		return $this->form;
 	}
 
-	public function allowExtraAttributes(): void
+	public function getClassName(): string
 	{
-		$this->allowExtraAttributes = true;
+		return $this->className;
+	}
+
+	public function getEventDispatcher(): EventDispatcher
+	{
+		return $this->eventDispatcher;
 	}
 
 	public function setDefaults(array $defaults): self
@@ -135,12 +127,29 @@ final class FormSerializer
 	{
 		$this->defaultObject = $object;
 
-		$this->repeatDefaultObject(false);
+		$this->applyDefaultObject(false);
 
 		return $this;
 	}
 
-	public function repeatDefaultObject(bool $needObject = true): self
+	public function getDefaultObject(): ?object
+	{
+		return $this->defaultObject;
+	}
+
+	public function hasDefaultObject(): bool
+	{
+		return (bool) $this->defaultObject;
+	}
+
+	public function addExtraValue(string|int $index, mixed $value): self
+	{
+		$this->extraValues[$index] = $value;
+
+		return $this;
+	}
+
+	public function applyDefaultObject(bool $needObject = true): self
 	{
 		if (!$this->defaultObject) {
 			if ($needObject) {
@@ -150,9 +159,19 @@ final class FormSerializer
 			return $this;
 		}
 
-		$this->form->setDefaults(
-			$this->serializer->normalize($this->defaultObject, null, $this->createNormalizationContext())
+		if (!$this->defaultObject) {
+			return $this;
+		}
+
+		$values = $this->serializer->normalize(
+			$this->defaultObject,
+			null,
+			$this->normalizationContextFactory->create()
 		);
+
+		$this->eventDispatcher->dispatch($event = new AfterNormalizationEvent($this->defaultObject, $values, $this));
+
+		$this->form->setDefaults($event->getValues());
 
 		return $this;
 	}
@@ -160,92 +179,96 @@ final class FormSerializer
 	private function prepare(): void
 	{
 		$this->form->onSuccess[] = function (Form $form, array $values): void {
+			// extra values
+			foreach ($this->extraValues as $index => $value) {
+				if (array_key_exists($index, $values)) {
+					throw new LogicException(
+						sprintf('Form value with index %s already exists, please change extra value index name', $index)
+					);
+				}
+
+				$values[$index] = $value;
+			}
+
 			// before denormalize
-			$this->eventDispatcher->dispatch($event = new BeforeDenormalizeEvent($values, $form));
+			$this->eventDispatcher->dispatch($event = new BeforeDenormalizationEvent($values, $form, $this));
 
 			// denormalize
-			$object = $this->serializer->denormalize($event->getValues(), $this->class, null, $this->createDenormalizationContext());
+			$object = $this->serializer->denormalize(
+				$event->getValues(),
+				$this->className,
+				null,
+				$this->denormalizationContextFactory->create()
+			);
 
 			// after denormalize
-			$this->eventDispatcher->dispatch(new AfterDenormalizeEvent($object, $form));
+			$this->eventDispatcher->dispatch(new AfterDenormalizationEvent($object, $form, $this));
 
 			// validate
 			if ($this->validateObject && $this->validator) {
 				$errors = $this->validator->validate($object, null, $this->groups ?: null);
 
-				if ($errors) {
-					foreach ($errors->getViolations() as $error) {
-						$form->addError($error->getError());
+				if ($errors->count()) {
+					/** @var ConstraintViolation $error */
+					foreach ($errors as $error) {
+						$property = $error->getPropertyPath();
+
+						if ($property && $component = $form->getComponent($property, false)) {
+							assert($component instanceof BaseControl);
+
+							$component->addError($error->getMessage());
+						} else {
+							$form->addError($error->getMessage());
+						}
 					}
 
 					return;
 				}
 			}
 
-			$this->eventDispatcher->dispatch(new AfterValidationEvent($object, $form));
+			$this->eventDispatcher->dispatch(new AfterValidationEvent($object, $form, $this));
 
 			// persist
-			if ($this->persistObject) {
+			if ($this->persistObject && $this->em) {
 				$this->em->persist($object);
 				$this->em->flush();
 			}
 
 			// success
-			$this->eventDispatcher->dispatch(new SuccessEvent($object, $form));
+			$this->eventDispatcher->dispatch(new SuccessEvent($object, $form, $this));
+
+			// finalize
+			$this->eventDispatcher->dispatch(new FinalizeEvent($object, $form, $this));
+		};
+
+		$this->form->onError[] = function (): void {
+			$this->eventDispatcher->dispatch(new ErrorEvent($this->form, $this));
 		};
 	}
 
-	public function addSuccessListener(callable $callback): self
+	public function debug(bool $withError = false): self
 	{
-		$this->eventDispatcher->addSuccess($callback);
+		$this->setPersistObject(false);
+		$this->getEventDispatcher()->addError(
+			fn (ErrorEvent $event) => Debugger::barDump($event->getForm()->getUnsafeValues(), 'Form serializer $values')
+		);
+		$this->getEventDispatcher()->addError(
+			fn (ErrorEvent $event) => Debugger::barDump($event->getForm()->getErrors(), 'Form serializer $errors')
+		);
+		$this->getEventDispatcher()->addBeforeDenormalization(
+			fn (BeforeDenormalizationEvent $event) => Debugger::barDump($event->getValues(), 'Form serializer $values')
+		);
+		$this->getEventDispatcher()->addAfterDenormalization(
+			fn (AfterDenormalizationEvent $event) => Debugger::barDump($event->getObject(), 'Form serializer $entity')
+		);
 
-		return $this;
-	}
-
-	public function addBeforeDenormalizeListener(callable $callback): self
-	{
-		$this->eventDispatcher->addBeforeDenormalize($callback);
-
-		return $this;
-	}
-
-	public function addAfterDenormalizeListener(callable $callback): self
-	{
-		$this->eventDispatcher->addAfterDenormalize($callback);
-
-		return $this;
-	}
-
-	/**
-	 * @return mixed[]
-	 */
-	private function createDenormalizationContext(): array
-	{
-		$context = $this->denormalizerContext;
-		if ($this->defaultObject instanceof $this->class) {
-			$context[AbstractObjectNormalizer::OBJECT_TO_POPULATE] = $this->defaultObject ?? null;
+		if ($withError) {
+			$this->getForm()->onValidate[] = function (): void {
+				$this->getForm()->addError('Failed because of debug.');
+			};
 		}
 
-		$context[AbstractObjectNormalizer::ALLOW_EXTRA_ATTRIBUTES] = $this->allowExtraAttributes;
-
-		return $context;
-	}
-
-	/**
-	 * @return mixed[]
-	 */
-	private function createNormalizationContext(): array
-	{
-		$context = $this->normalizerContext;
-
-		if ($this->attributesByFormControls) {
-			$controls = $this->form->getComponents(false, BaseControl::class);
-			$controls = new CallbackFilterIterator($controls, fn (BaseControl $control) => !$control instanceof Button);
-
-			$context[AbstractObjectNormalizer::ATTRIBUTES] = array_keys(iterator_to_array($controls));
-		}
-
-		return $context;
+		return $this;
 	}
 
 }
